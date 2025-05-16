@@ -2,7 +2,10 @@ import asyncio
 import os
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.enums import ParseMode
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import (
+    ReplyKeyboardMarkup,
+    KeyboardButton
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import StatesGroup, State
@@ -10,27 +13,37 @@ from aiogram import Router
 from aiogram.filters import CommandStart
 from dotenv import load_dotenv
 
+# Загрузка токена из .env
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+# Инициализация бота
 bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher(storage=MemoryStorage())
 router = Router()
 dp.include_router(router)
 
+# Шаги FSM
 class SalaryForm(StatesGroup):
     choose_department = State()
     choose_employee = State()
     worked_days = State()
     ftd_count = State()
 
+# Данные по сотрудникам
 EMPLOYEES = {
     "Ivan": {"rate": 1000, "days_in_month": 22},
     "Anna": {"rate": 1200, "days_in_month": 21},
 }
 
-start_kb = ReplyKeyboardMarkup(resize_keyboard=True)
-start_kb.add(KeyboardButton("DE SALE"), KeyboardButton("DE RET"))
+# Клавиатура выбора отдела
+start_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="DE SALE")],
+        [KeyboardButton(text="DE RET")]
+    ],
+    resize_keyboard=True
+)
 
 @router.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -39,10 +52,12 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 @router.message(SalaryForm.choose_department)
 async def choose_employee(message: types.Message, state: FSMContext):
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    for name in EMPLOYEES:
-        kb.add(KeyboardButton(name))
-    await state.update_data(department=message.text)
+    dept = message.text
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=name)] for name in EMPLOYEES.keys()],
+        resize_keyboard=True
+    )
+    await state.update_data(department=dept)
     await message.answer("Выберите сотрудника:", reply_markup=kb)
     await state.set_state(SalaryForm.choose_employee)
 
@@ -70,10 +85,12 @@ async def show_result(message: types.Message, state: FSMContext):
     name = data["employee"]
     worked_days = data["worked_days"]
     emp_data = EMPLOYEES[name]
-    
+
+    # Расчёт оклада
     daily_rate = emp_data["rate"] / emp_data["days_in_month"]
     salary_part = daily_rate * worked_days
 
+    # Бонус
     if ftd <= 5:
         bonus = 50
     elif ftd <= 15:
@@ -93,6 +110,7 @@ async def show_result(message: types.Message, state: FSMContext):
     )
     await state.clear()
 
+# Запуск
 async def main():
     await dp.start_polling(bot)
 
