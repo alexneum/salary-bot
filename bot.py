@@ -1,18 +1,22 @@
+import asyncio
 import os
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.enums import ParseMode
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils import executor
-from aiogram.dispatcher import FSMContext
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.state import StatesGroup, State
+from aiogram import Router
+from aiogram.filters import CommandStart
 from dotenv import load_dotenv
 
 load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-API_TOKEN = os.getenv("BOT_TOKEN")
-
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot, storage=MemoryStorage())
+bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+dp = Dispatcher(storage=MemoryStorage())
+router = Router()
+dp.include_router(router)
 
 class SalaryForm(StatesGroup):
     choose_department = State()
@@ -28,51 +32,46 @@ EMPLOYEES = {
 start_kb = ReplyKeyboardMarkup(resize_keyboard=True)
 start_kb.add(KeyboardButton("DE SALE"), KeyboardButton("DE RET"))
 
-@dp.message_handler(commands=['start'])
-async def start(message: types.Message):
+@router.message(CommandStart())
+async def cmd_start(message: types.Message, state: FSMContext):
     await message.answer("Выберите отдел:", reply_markup=start_kb)
-    await SalaryForm.choose_department.set()
+    await state.set_state(SalaryForm.choose_department)
 
-@dp.message_handler(state=SalaryForm.choose_department)
+@router.message(SalaryForm.choose_department)
 async def choose_employee(message: types.Message, state: FSMContext):
-    dept = message.text
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    for name in EMPLOYEES.keys():
+    for name in EMPLOYEES:
         kb.add(KeyboardButton(name))
+    await state.update_data(department=message.text)
     await message.answer("Выберите сотрудника:", reply_markup=kb)
-    await state.update_data(department=dept)
-    await SalaryForm.choose_employee.set()
+    await state.set_state(SalaryForm.choose_employee)
 
-@dp.message_handler(state=SalaryForm.choose_employee)
-async def get_worked_days(message: types.Message, state: FSMContext):
-    name = message.text
-    await state.update_data(employee=name)
+@router.message(SalaryForm.choose_employee)
+async def input_days(message: types.Message, state: FSMContext):
+    await state.update_data(employee=message.text)
     await message.answer("Сколько дней отработал?")
-    await SalaryForm.worked_days.set()
+    await state.set_state(SalaryForm.worked_days)
 
-@dp.message_handler(state=SalaryForm.worked_days)
-async def get_ftd(message: types.Message, state: FSMContext):
-    try:
-        worked_days = int(message.text)
-    except ValueError:
+@router.message(SalaryForm.worked_days)
+async def input_ftd(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
         return await message.answer("Введите число.")
-    await state.update_data(worked_days=worked_days)
+    await state.update_data(worked_days=int(message.text))
     await message.answer("Сколько FTD?")
-    await SalaryForm.ftd_count.set()
+    await state.set_state(SalaryForm.ftd_count)
 
-@dp.message_handler(state=SalaryForm.ftd_count)
-async def calculate(message: types.Message, state: FSMContext):
-    try:
-        ftd = int(message.text)
-    except ValueError:
+@router.message(SalaryForm.ftd_count)
+async def show_result(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
         return await message.answer("Введите число.")
-
+    
+    ftd = int(message.text)
     data = await state.get_data()
-    name = data['employee']
-    worked_days = data['worked_days']
+    name = data["employee"]
+    worked_days = data["worked_days"]
     emp_data = EMPLOYEES[name]
-
-    daily_rate = emp_data['rate'] / emp_data['days_in_month']
+    
+    daily_rate = emp_data["rate"] / emp_data["days_in_month"]
     salary_part = daily_rate * worked_days
 
     if ftd <= 5:
@@ -92,8 +91,10 @@ async def calculate(message: types.Message, state: FSMContext):
         f"FTD Count - {ftd}\n"
         f"Total payment is - ${total:.2f}"
     )
+    await state.clear()
 
-    await state.finish()
+async def main():
+    await dp.start_polling(bot)
 
-if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+if __name__ == "__main__":
+    asyncio.run(main())
