@@ -112,6 +112,7 @@ async def show_result(message: types.Message, state: FSMContext):
 
 # Запуск
 async def main():
+    await bot.delete_webhook(drop_pending_updates=True)  # Удалить активный webhook
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
